@@ -14,7 +14,7 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QDragEnterEvent, QDropEvent, QPixmap
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -166,6 +166,12 @@ class DropArea(QFrame):
     def mousePressEvent(self, event):
         if not self.isEnabled():
             return
+        self.open_file_dialog()
+
+    def open_file_dialog(self) -> None:
+        """Abre o seletor de arquivos (também usado pelo atalho Ctrl+O)."""
+        if not self.isEnabled():
+            return
         path, _ = QFileDialog.getOpenFileName(
             self, "Selecionar arquivo de áudio", "", _FORMATS_DIALOG_FILTER
         )
@@ -249,6 +255,7 @@ class MainWindow(QMainWindow):
         root.addWidget(subtitle)
 
         self.drop_area = DropArea()
+        self.drop_area.setToolTip("Selecionar arquivo (Ctrl+O)")
         self.drop_area.file_dropped.connect(self._on_file_selected)
         root.addWidget(self.drop_area)
 
@@ -303,6 +310,7 @@ class MainWindow(QMainWindow):
             font_size=14,
         )
         self.transcribe_button.setEnabled(False)
+        self.transcribe_button.setToolTip("Transcrever (Ctrl+Enter)")
         self.transcribe_button.clicked.connect(self._start_transcription)
 
         root.addWidget(self.transcribe_button.wrap_in_holder(), alignment=Qt.AlignCenter)
@@ -376,10 +384,28 @@ class MainWindow(QMainWindow):
         self.save_button.setIcon(save_icon(COLOR_MIST))
         self.save_button.setIconSize(QSize(15, 15))
         self.save_button.setEnabled(False)
+        self.save_button.setToolTip("Salvar (Ctrl+S)")
         self.save_button.clicked.connect(self._save_text)
         actions_row.addWidget(self.copy_button)
         actions_row.addWidget(self.save_button)
         root.addLayout(actions_row)
+
+        self._setup_shortcuts()
+
+    def _setup_shortcuts(self) -> None:
+        """Atalhos de teclado para as ações mais comuns do app."""
+        open_shortcut = QShortcut(QKeySequence("Ctrl+O"), self)
+        open_shortcut.activated.connect(self.drop_area.open_file_dialog)
+
+        transcribe_shortcut = QShortcut(QKeySequence("Ctrl+Return"), self)
+        transcribe_shortcut.activated.connect(self._start_transcription)
+        # Ctrl+Enter do teclado numérico usa uma sequência diferente da
+        # tecla Enter principal — precisa de um atalho à parte pra cobrir os dois.
+        transcribe_shortcut_numpad = QShortcut(QKeySequence("Ctrl+Enter"), self)
+        transcribe_shortcut_numpad.activated.connect(self._start_transcription)
+
+        save_shortcut = QShortcut(QKeySequence("Ctrl+S"), self)
+        save_shortcut.activated.connect(self._save_text)
 
     # -- animações ----------------------------------------------------------
 
@@ -498,7 +524,10 @@ class MainWindow(QMainWindow):
             self.expand_button.setToolTip("Expandir a área de transcrição")
 
     def _start_transcription(self) -> None:
-        if not self.current_file:
+        if not self.current_file or not self.transcribe_button.isEnabled():
+            # O botão fica desabilitado durante o processamento; o atalho de
+            # teclado (Ctrl+Enter) precisa respeitar o mesmo estado pra não
+            # disparar uma segunda transcrição por cima da que já está rodando.
             return
 
         api_key = load_api_key()

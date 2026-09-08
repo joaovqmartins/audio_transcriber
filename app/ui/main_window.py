@@ -215,7 +215,6 @@ class MainWindow(QMainWindow):
 
         self.current_file: Optional[str] = None
         self.worker: Optional[TranscriptionWorker] = None
-        self.transcribed_text: str = ""
         self._status_base = ""
         self._status_dot_count = 0
         self._expanded = False
@@ -365,8 +364,11 @@ class MainWindow(QMainWindow):
         root.addLayout(result_title_row)
 
         self.result_text = QTextEdit()
-        self.result_text.setReadOnly(True)
         self.result_text.setPlaceholderText("Texto transcrito aparecerá aqui...")
+        # Habilitado por padrão (editável) — só fica temporariamente somente
+        # leitura durante o efeito de "digitação" em _reveal_text, pra evitar
+        # que uma edição do usuário seja sobrescrita pela animação.
+        self.result_text.textChanged.connect(self._update_result_actions_enabled)
         root.addWidget(self.result_text, stretch=1)
 
         actions_row = QHBoxLayout()
@@ -410,13 +412,20 @@ class MainWindow(QMainWindow):
     # -- animações ----------------------------------------------------------
 
     def _reveal_text(self, text: str) -> None:
-        """Revela o texto transcrito aos poucos, como se estivesse sendo digitado."""
+        """Revela o texto transcrito aos poucos, como se estivesse sendo digitado.
+
+        O texto é editável (issue #5), mas fica temporariamente somente
+        leitura enquanto essa animação roda — senão uma edição do usuário
+        seria sobrescrita a cada "tick" da revelação.
+        """
         self._reveal_timer.stop()
+        self.result_text.setReadOnly(True)
         self.result_text.clear()
 
         self._reveal_full_text = text
         self._reveal_pos = 0
         if not text:
+            self.result_text.setReadOnly(False)
             return
 
         steps = 50
@@ -432,6 +441,13 @@ class MainWindow(QMainWindow):
 
         if self._reveal_pos >= len(self._reveal_full_text):
             self._reveal_timer.stop()
+            self.result_text.setReadOnly(False)
+
+    def _update_result_actions_enabled(self) -> None:
+        """Habilita Copiar/Salvar com base no texto atual da caixa (editável)."""
+        has_text = bool(self.result_text.toPlainText().strip())
+        self.copy_button.setEnabled(has_text)
+        self.save_button.setEnabled(has_text)
 
     # -- status ---------------------------------------------------------
 
@@ -485,10 +501,8 @@ class MainWindow(QMainWindow):
 
         self.transcribe_button.setEnabled(True)
         self._reveal_timer.stop()
+        self.result_text.setReadOnly(False)
         self.result_text.clear()
-        self.transcribed_text = ""
-        self.copy_button.setEnabled(False)
-        self.save_button.setEnabled(False)
         self._clear_status()
 
     def _set_busy(self, busy: bool) -> None:
@@ -546,10 +560,8 @@ class MainWindow(QMainWindow):
 
         self._set_busy(True)
         self._reveal_timer.stop()
+        self.result_text.setReadOnly(True)  # nada pra editar durante o processamento
         self.result_text.clear()
-        self.transcribed_text = ""
-        self.copy_button.setEnabled(False)
-        self.save_button.setEnabled(False)
         self._set_status("Enviando áudio", "info")
 
         self.worker = TranscriptionWorker(self.current_file, api_key, model_option.model_id, language_code)
@@ -559,15 +571,10 @@ class MainWindow(QMainWindow):
         self.worker.start()
 
     def _on_transcription_finished(self, text: str) -> None:
-        self.transcribed_text = text
         self._reveal_text(text)
         self._set_busy(False)
 
-        has_text = bool(text.strip())
-        self.copy_button.setEnabled(has_text)
-        self.save_button.setEnabled(has_text)
-
-        if has_text:
+        if text.strip():
             self._set_status("Concluído.", "success")
         else:
             self._set_status("Nenhuma fala identificada.", "info")
@@ -587,11 +594,12 @@ class MainWindow(QMainWindow):
         )
 
     def _copy_text(self) -> None:
-        QApplication.clipboard().setText(self.transcribed_text)
+        QApplication.clipboard().setText(self.result_text.toPlainText())
         self._set_status("Transcrição copiada para a área de transferência.", "success")
 
     def _save_text(self) -> None:
-        if not self.transcribed_text.strip():
+        text = self.result_text.toPlainText()
+        if not text.strip():
             return
 
         suggested_name = "transcricao.txt"
@@ -608,7 +616,7 @@ class MainWindow(QMainWindow):
 
         try:
             with open(path, "w", encoding="utf-8") as file:
-                file.write(self.transcribed_text)
+                file.write(text)
             self._set_status(f"Transcrição salva em: {path}", "success")
         except OSError as exc:
             QMessageBox.critical(self, "Erro ao salvar", f"Não foi possível salvar o arquivo:\n\n{exc}")

@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from typing import Callable, Optional
 
+import httpx
 from groq import APIConnectionError, APIStatusError, Groq
 
 from app.config import MAX_FILE_SIZE_MB
@@ -22,8 +23,14 @@ def transcribe_audio(
     model_id: str,
     language: Optional[str],
     on_status: Callable[[str], None],
+    http_client: Optional[httpx.Client] = None,
 ) -> str:
-    """Envia o áudio para a API da Groq e retorna o texto transcrito."""
+    """Envia o áudio para a API da Groq e retorna o texto transcrito.
+
+    `http_client`, se informado, é repassado ao cliente da Groq em vez de um
+    criado internamente — permite que quem chamou feche essa conexão de
+    fora (de outra thread) para cancelar uma requisição em andamento.
+    """
     if not api_key:
         raise RuntimeError(
             "Nenhuma chave de API da Groq configurada. Clique no botão "
@@ -38,7 +45,7 @@ def transcribe_audio(
         )
 
     on_status("Enviando áudio...")
-    client = Groq(api_key=api_key)
+    client = Groq(api_key=api_key, http_client=http_client)
 
     request_kwargs = {"model": model_id, "response_format": "json"}
     if language:

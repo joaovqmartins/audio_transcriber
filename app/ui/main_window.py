@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+import httpx
 from PySide6.QtCore import (
     QEasingCurve,
     QPropertyAnimation,
@@ -34,6 +35,7 @@ from app.config import (
     APP_NAME,
     APP_SUBTITLE,
     AUDIO_LOADED_ICON_PATH,
+    COLOR_DANGER,
     COLOR_INDIGO,
     COLOR_MIST,
     COLOR_PANEL,
@@ -69,6 +71,7 @@ class TranscriptionWorker(QThread):
     status_changed = Signal(str)
     finished_ok = Signal(str)
     failed = Signal(str)
+    cancelled = Signal()
 
     def __init__(self, file_path: str, api_key: str, model_id: str, language: Optional[str]):
         super().__init__()
@@ -76,6 +79,17 @@ class TranscriptionWorker(QThread):
         self.api_key = api_key
         self.model_id = model_id
         self.language = language
+        # Client HTTP próprio (em vez de deixar a Groq criar um internamente)
+        # só pra poder fechá-lo de fora, de outra thread, e assim cancelar
+        # uma requisição em andamento — a lib da Groq não expõe um jeito
+        # direto de abortar uma chamada já em progresso.
+        self._http_client = httpx.Client()
+        self._cancel_requested = False
+
+    def cancel(self) -> None:
+        """Interrompe a requisição em andamento fechando a conexão HTTP."""
+        self._cancel_requested = True
+        self._http_client.close()
 
     def run(self) -> None:
         try:
@@ -85,10 +99,16 @@ class TranscriptionWorker(QThread):
                 self.model_id,
                 self.language,
                 on_status=self.status_changed.emit,
+                http_client=self._http_client,
             )
             self.finished_ok.emit(text)
-        except Exception as exc:  # captura qualquer falha da API/rede
+        except Exception as exc:  # captura qualquer falha da API/rede, ou o cancelamento
+            if self._cancel_requested:
+                self.cancelled.emit()
+                return
             self.failed.emit(str(exc))
+        finally:
+            self._http_client.close()
 
 
 class DropArea(QFrame):
@@ -215,6 +235,7 @@ class MainWindow(QMainWindow):
 
         self.current_file: Optional[str] = None
         self.worker: Optional[TranscriptionWorker] = None
+        self._busy = False
         self._status_base = ""
         self._status_dot_count = 0
         self._expanded = False
@@ -310,7 +331,8 @@ class MainWindow(QMainWindow):
         )
         self.transcribe_button.setEnabled(False)
         self.transcribe_button.setToolTip("Transcrever (Ctrl+Enter)")
-        self.transcribe_button.clicked.connect(self._start_transcription)
+        self.transcribe_button.clicked.connect(self._on_transcribe_button_clicked)
+        self.transcribe_button.hoverChanged.connect(self._on_transcribe_hover_changed)
 
         root.addWidget(self.transcribe_button.wrap_in_holder(), alignment=Qt.AlignCenter)
 
@@ -506,8 +528,16 @@ class MainWindow(QMainWindow):
         self._clear_status()
 
     def _set_busy(self, busy: bool) -> None:
-        self.transcribe_button.setEnabled(not busy and self.current_file is not None)
+        self._busy = busy
+        # Continua habilitado durante o processamento — vira um botão de
+        # cancelar, em vez de só ficar travado mostrando "Transcrevendo...".
+        self.transcribe_button.setEnabled(busy or self.current_file is not None)
+        self.transcribe_button.setToolTip("Cancelar" if busy else "Transcrever (Ctrl+Enter)")
         self.transcribe_button.setText("Transcrevendo..." if busy else "Transcrever")
+        # O vermelho de "perigo" só aparece ao passar o mouse por cima (ver
+        # _on_transcribe_hover_changed) — evita que o botão pareça um alerta
+        # o tempo todo enquanto só está processando.
+        self._apply_transcribe_color_scheme(danger=False)
         self.drop_area.setEnabled(not busy)
         self.model_combo.setEnabled(not busy)
         self.language_combo.setEnabled(not busy)
@@ -519,6 +549,32 @@ class MainWindow(QMainWindow):
         else:
             self.spinner.stop()
             self._status_timer.stop()
+
+    def _apply_transcribe_color_scheme(self, danger: bool) -> None:
+        if danger:
+            self.transcribe_button.set_color_scheme(
+                COLOR_DANGER, hover_color="#f87171", pressed_color="#b91c1c"
+            )
+            self.transcribe_button.set_glow_color(COLOR_DANGER)
+        else:
+            self.transcribe_button.set_color_scheme(
+                COLOR_INDIGO, hover_color="#7a7df3", pressed_color="#4f52c1"
+            )
+            self.transcribe_button.set_glow_color(COLOR_INDIGO)
+
+    def _on_transcribe_hover_changed(self, hovering: bool) -> None:
+        """Durante a transcrição, o hover revela a ação de cancelar (fica vermelho)."""
+        if not self._busy:
+            return
+        self.transcribe_button.setText("Cancelar" if hovering else "Transcrevendo...")
+        self._apply_transcribe_color_scheme(danger=hovering)
+
+    def _on_transcribe_button_clicked(self) -> None:
+        """O mesmo botão serve pra iniciar ou cancelar, dependendo do estado."""
+        if self._busy:
+            self._cancel_transcription()
+        else:
+            self._start_transcription()
 
     def _open_settings(self) -> None:
         SettingsDialog(self).exec()
@@ -538,10 +594,11 @@ class MainWindow(QMainWindow):
             self.expand_button.setToolTip("Expandir a área de transcrição")
 
     def _start_transcription(self) -> None:
-        if not self.current_file or not self.transcribe_button.isEnabled():
-            # O botão fica desabilitado durante o processamento; o atalho de
-            # teclado (Ctrl+Enter) precisa respeitar o mesmo estado pra não
-            # disparar uma segunda transcrição por cima da que já está rodando.
+        if not self.current_file or self._busy:
+            # O atalho de teclado (Ctrl+Enter) precisa respeitar o mesmo
+            # estado pra não disparar uma segunda transcrição por cima da
+            # que já está rodando (o botão continua habilitado durante o
+            # processamento, agora servindo pra cancelar).
             return
 
         api_key = load_api_key()
@@ -568,9 +625,32 @@ class MainWindow(QMainWindow):
         self.worker.status_changed.connect(lambda text: self._set_status(text, "info"))
         self.worker.finished_ok.connect(self._on_transcription_finished)
         self.worker.failed.connect(self._on_transcription_failed)
+        self.worker.cancelled.connect(self._on_transcription_cancelled)
         self.worker.start()
 
+    def _cancel_transcription(self) -> None:
+        if self.worker is None:
+            return
+        self._set_status("Cancelando...", "info")
+        self.worker.cancel()
+
+    def _finish_worker(self) -> None:
+        """Espera a thread encerrar de vez e libera a referência.
+
+        Chamado no início de cada callback de desfecho (sucesso, erro ou
+        cancelamento) — evita processar dois desfechos pro mesmo worker se,
+        por exemplo, o usuário clicar em "Cancelar" bem no instante em que o
+        resultado real já estava chegando.
+        """
+        if self.worker is None:
+            return False
+        self.worker.wait()
+        self.worker = None
+        return True
+
     def _on_transcription_finished(self, text: str) -> None:
+        if not self._finish_worker():
+            return
         self._reveal_text(text)
         self._set_busy(False)
 
@@ -584,7 +664,15 @@ class MainWindow(QMainWindow):
                 "Não foi possível identificar fala no áudio enviado.",
             )
 
+    def _on_transcription_cancelled(self) -> None:
+        if not self._finish_worker():
+            return
+        self._set_busy(False)
+        self._set_status("Transcrição cancelada.", "info")
+
     def _on_transcription_failed(self, message: str) -> None:
+        if not self._finish_worker():
+            return
         self._set_status("Ocorreu um erro durante a transcrição.", "error")
         self._set_busy(False)
         QMessageBox.critical(

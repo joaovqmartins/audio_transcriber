@@ -28,6 +28,7 @@ COLOR_PANEL = "#161b22"  # fundo de painéis/combos/popups
 COLOR_MIST = "#e6edf3"  # texto principal / alto contraste
 COLOR_STEEL = "#8b949e"  # elementos secundários / subtítulos / bordas
 COLOR_INDIGO = "#6366f1"  # botão principal / destaque
+COLOR_DANGER = "#ef4444"  # botão de cancelar (hover durante transcrição)
 
 
 @dataclass(frozen=True)

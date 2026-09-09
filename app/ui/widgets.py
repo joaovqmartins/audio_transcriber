@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPropertyAnimation, QRectF, QSize, Qt, QTimer
+from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPropertyAnimation, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBitmap, QColor, QPainter, QPalette, QPen, QRegion
 from PySide6.QtWidgets import QComboBox, QGraphicsDropShadowEffect, QPushButton, QWidget
 
@@ -105,6 +105,8 @@ class RoundedButton(QPushButton):
     com fundo transparente.
     """
 
+    hoverChanged = Signal(bool)
+
     def __init__(
         self,
         *args,
@@ -136,6 +138,18 @@ class RoundedButton(QPushButton):
             f"QPushButton:disabled {{ color: {disabled_text_color}; }}"
         )
 
+    def set_color_scheme(
+        self,
+        bg_color: str,
+        hover_color: Optional[str] = None,
+        pressed_color: Optional[str] = None,
+    ) -> None:
+        """Troca as cores em tempo real (ex.: alternar para o esquema de "perigo")."""
+        self._bg = QColor(bg_color)
+        self._hover = QColor(hover_color) if hover_color else self._bg.lighter(122)
+        self._pressed = QColor(pressed_color) if pressed_color else self._bg.darker(125)
+        self.update()
+
     def _current_color(self) -> QColor:
         if not self.isEnabled():
             return self._disabled
@@ -159,11 +173,13 @@ class RoundedButton(QPushButton):
     def enterEvent(self, event):
         self._hovering = True
         self.update()
+        self.hoverChanged.emit(True)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
         self._hovering = False
         self.update()
+        self.hoverChanged.emit(False)
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):

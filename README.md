@@ -254,18 +254,29 @@ abre com dois cliques, sem Python nem ambiente virtual. É o melhor caminho para
 
 ### Como gerar
 
-1. Abra um terminal na pasta do projeto e ative o ambiente virtual (veja
-   [Instalar as dependências](#instalar-as-dependências)).
+O ambiente virtual precisa já ter sido criado (veja
+[Instalar as dependências](#instalar-as-dependências)), mas não é preciso
+ativá-lo: os comandos abaixo usam o `venv` diretamente.
+
+1. Abra um terminal na pasta do projeto, onde fica o `build.spec`.
 2. Instale as ferramentas de build, necessárias só na primeira vez:
 
 ```bash
-pip install -r requirements-dev.txt
+# Windows
+.\venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+
+# Linux ou macOS
+venv/bin/python -m pip install -r requirements-dev.txt
 ```
 
 3. Gere o executável, o que costuma levar cerca de um minuto:
 
 ```bash
-pyinstaller build.spec
+# Windows
+.\venv\Scripts\pyinstaller.exe build.spec
+
+# Linux ou macOS
+venv/bin/pyinstaller build.spec
 ```
 
 4. Quando aparecer `Build complete!`, o arquivo estará na pasta `dist/`:
@@ -275,8 +286,30 @@ pyinstaller build.spec
 | Windows | `dist/AudioTranscriber.exe` |
 | Linux ou macOS | `dist/AudioTranscriber` |
 
-Depois de mudar o código, rode o passo 3 de novo: o executável não se atualiza
-sozinho. As pastas `build/` e `dist/` são ignoradas pelo Git.
+As pastas `build/` e `dist/` são ignoradas pelo Git.
+
+### Atualizar o executável
+
+O executável é uma cópia do código do momento em que foi gerado, então ele não
+se atualiza sozinho. Depois de mudar o código:
+
+1. **Feche o app**, se estiver aberto. No Windows, um `.exe` em uso não pode ser
+   substituído.
+2. **Rode de novo o comando do passo 3** de [Como gerar](#como-gerar). O arquivo
+   em `dist/` é substituído pela versão nova.
+
+Alguns cuidados ao gerar uma nova versão:
+
+* **O build usa o que está na pasta naquele momento:** isso inclui a branch atual
+  e as alterações sem commit. Para gerar uma versão estável, volte para o `main`
+  antes.
+* **Dependência nova:** se o `requirements.txt` mudou, repita o passo 2 antes de
+  gerar.
+* **Arquivos novos:** o que estiver em `assets/` entra sozinho no executável.
+  Arquivos de outras pastas precisam ser adicionados em `datas`, no `build.spec`.
+* **Outras pessoas:** quem já tem o app não recebe a atualização, então é preciso
+  enviar o arquivo novo. A chave de API continua funcionando, porque ela fica na
+  pasta do usuário, e não dentro do executável.
 
 ### Como usar e distribuir
 
@@ -349,6 +382,10 @@ nenhuma outra parte do código precisa mudar.
 * **"A execução de scripts foi desabilitada neste sistema"** ao ativar o venv no
   PowerShell: rode o app sem ativar, com `.\venv\Scripts\python.exe main.py`, ou
   ative o venv pelo `cmd`.
+* **`'pyinstaller' não é reconhecido`** ao gerar o executável: o PyInstaller só
+  existe dentro do `venv`, e o comando foi rodado sem ele. Use
+  `.\venv\Scripts\pyinstaller.exe build.spec`, como em
+  [Como gerar](#como-gerar).
 * **`command not found: python`** no Linux/macOS: use `python3` no lugar de
   `python` (o comando `python` sozinho geralmente não existe nessas
   plataformas).

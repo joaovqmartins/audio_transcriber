@@ -1,8 +1,8 @@
 # Audio Transcriber
 
 Aplicativo desktop simples e leve para transcrição de áudio, com interface
-gráfica minimalista. Arraste um arquivo `.mp3` ou `.ogg`, clique em
-**Transcrever** e receba o texto — a transcrição é feita pela **API de STT da
+gráfica minimalista. Arraste um arquivo `.mp3`, `.ogg`, `.wav` ou `.m4a`, clique
+em **Transcrever** e receba o texto — a transcrição é feita pela **API de STT da
 Groq**, que roda o modelo Whisper na nuvem com alta velocidade.
 
 > **Atenção:** o app requer conexão com a internet e envia o arquivo de áudio
@@ -43,7 +43,10 @@ transcrever_audio/
 │   ├── config.py                  # cores, modelos, idiomas
 │   ├── ui/
 │   │   ├── main_window.py         # interface gráfica (PySide6)
-│   │   └── settings_dialog.py     # diálogo para configurar a chave de API
+│   │   ├── settings_dialog.py     # diálogo para configurar a chave de API
+│   │   ├── widgets.py             # botões, combobox e spinner personalizados
+│   │   ├── icons.py               # ícones vetoriais da interface
+│   │   └── style.py               # folha de estilo (QSS)
 │   ├── transcription/
 │   │   └── groq_engine.py         # motor de transcrição (API da Groq)
 │   └── utils/
@@ -137,9 +140,10 @@ which python
 pip install -r requirements.txt
 ```
 
-Isso instala o **PySide6** (interface gráfica) e o **groq** (cliente oficial
-da API de transcrição). São dependências leves — a instalação é rápida e não
-baixa nenhum modelo de IA para o seu computador.
+Isso instala o **PySide6** (interface gráfica), o **groq** (cliente oficial
+da API de transcrição) e o **httpx** (conexão com a API, usada também para
+cancelar uma transcrição em andamento). Nenhum modelo de IA é baixado para o
+seu computador.
 
 3. Confirme que as dependências foram instaladas corretamente:
 
@@ -182,62 +186,118 @@ API da Groq:
 
 ## Como executar
 
-Com o ambiente virtual ativado e as dependências instaladas:
+### Abrir o app
+
+Abra um terminal na pasta do projeto e, com as
+[dependências instaladas](#instalar-as-dependências), rode o comando do seu
+sistema. Assim não é preciso ativar o ambiente virtual antes:
 
 ```bash
-python main.py
+# Windows (PowerShell)
+.\venv\Scripts\python.exe main.py
+
+# Windows (cmd)
+venv\Scripts\python.exe main.py
+
+# Linux ou macOS
+venv/bin/python main.py
 ```
 
-Fluxo de uso:
+Se o ambiente virtual já estiver ativado (com `(venv)` no início da linha do
+terminal), basta `python main.py`.
 
-1. Abra o aplicativo e configure sua chave de API (só precisa fazer isso uma vez).
-2. Arraste um arquivo `.mp3` ou `.ogg` para a área indicada (ou clique nela
-   para selecionar manualmente).
-3. Escolha o perfil de modelo e o idioma (ou deixe em "Detectar automaticamente").
-4. Clique em **Transcrever**.
-5. Acompanhe o status ("Enviando áudio...", "Transcrevendo...", etc.).
-6. Copie ou salve o texto transcrito em `.txt`.
+No **VS Code**, abra a pasta do projeto e aperte `F5`: a configuração
+"Audio Transcriber (main.py)" já vem pronta em `.vscode/launch.json`.
+
+### Transcrever um áudio
+
+1. **Configure a chave de API** (só na primeira vez): clique no cadeado no canto
+   superior direito e informe sua chave. Veja
+   [como obter uma chave](#obter-uma-chave-de-api-da-groq).
+2. **Carregue o áudio:** arraste o arquivo para a área central, clique nela ou
+   use `Ctrl+O`.
+3. **Escolha o modelo e o idioma:** o modelo pode ser **Preciso** (padrão) ou
+   **Rápido**, e o idioma pode ser Português, Inglês, Espanhol ou "Detectar
+   automaticamente". Veja
+   [Escolhendo velocidade x precisão](#escolhendo-velocidade-x-precisão).
+4. **Clique em Transcrever** ou use `Ctrl+Enter`, e acompanhe o status abaixo
+   do botão.
+5. **Revise o texto:** a caixa de transcrição é editável, então dá para corrigir
+   nomes e termos antes de usar o resultado. A seta ao lado de "Transcrição"
+   esconde a área de arquivo e as opções, deixando mais espaço para o texto.
+6. **Copie ou salve:** use **Copiar** ou **Salvar** (`Ctrl+S`, gera um `.txt`).
+   O que vai para a cópia ou para o arquivo é o texto com as suas edições.
+
+> **Atenção:** carregar outro arquivo limpa a caixa de transcrição. Copie ou
+> salve o texto antes.
+
+### Cancelar uma transcrição
+
+Durante o processamento, o botão mostra "Transcrevendo...". Passe o mouse sobre
+ele: o botão fica vermelho com o texto **Cancelar**, e o clique interrompe o
+envio na hora. O arquivo continua carregado, então você pode ajustar as opções e
+transcrever de novo.
+
+### Atalhos de teclado
+
+| Atalho | Ação |
+| --- | --- |
+| `Ctrl+O` | Selecionar um arquivo de áudio |
+| `Ctrl+Enter` | Iniciar a transcrição |
+| `Ctrl+S` | Salvar o texto em `.txt` |
 
 ## Gerar um executável (.exe)
 
-Se você não quer instalar Python nem lidar com ambiente virtual, pode gerar
-um executável único do app com o [PyInstaller](https://pyinstaller.org/).
-Isso é útil principalmente para **distribuir o app para outra pessoa** — ela
-só baixa o arquivo e clica duas vezes, sem instalar nada.
+Com o [PyInstaller](https://pyinstaller.org/), o app vira um único arquivo que
+abre com dois cliques, sem Python nem ambiente virtual. É o melhor caminho para
+**passar o app para outra pessoa**.
 
-1. Com o ambiente virtual ativado, instale as ferramentas de build (além das
-   dependências normais):
+### Como gerar
+
+1. Abra um terminal na pasta do projeto e ative o ambiente virtual (veja
+   [Instalar as dependências](#instalar-as-dependências)).
+2. Instale as ferramentas de build, necessárias só na primeira vez:
 
 ```bash
 pip install -r requirements-dev.txt
 ```
 
-2. Gere o executável:
+3. Gere o executável, o que costuma levar cerca de um minuto:
 
 ```bash
 pyinstaller build.spec
 ```
 
-3. O resultado fica em `dist/AudioTranscriber.exe` (Windows) ou
-   `dist/AudioTranscriber` (Linux/macOS). Esse arquivo é standalone — pode
-   ser copiado e executado em outra máquina do mesmo sistema operacional sem
-   precisar de Python instalado lá.
+4. Quando aparecer `Build complete!`, o arquivo estará na pasta `dist/`:
 
-**Observações:**
+| Sistema | Arquivo gerado |
+| --- | --- |
+| Windows | `dist/AudioTranscriber.exe` |
+| Linux ou macOS | `dist/AudioTranscriber` |
 
-* O build precisa ser feito **no mesmo sistema operacional** do
-  computador onde o executável vai rodar — o PyInstaller não faz
-  cross-compile (um `.exe` gerado no Windows não roda no Linux, e
-  vice-versa).
-* O executável fica relativamente grande (~55 MB), porque empacota o
-  próprio Python e todas as dependências (PySide6, etc.) juntos — não é um
-  instalador, é um único arquivo autocontido.
-* A chave de API da Groq continua sendo configurada normalmente pela
-  interface (ícone de cadeado) e salva no mesmo lugar de sempre — gerar o
-  executável não muda nada sobre isso.
-* `requirements-dev.txt` e `build.spec` são só para quem vai **gerar** o
-  executável (desenvolvimento); quem só vai **usar** o app baixando o
-  `.exe` pronto não precisa de nada disso.
+Depois de mudar o código, rode o passo 3 de novo: o executável não se atualiza
+sozinho. As pastas `build/` e `dist/` são ignoradas pelo Git.
+
+### Como usar e distribuir
+
+Basta copiar esse **único arquivo**: quem recebe não precisa instalar Python
+nem qualquer dependência. Antes de enviar, vale saber que:
+
+* **É preciso gerar em cada sistema:** o PyInstaller não faz build cruzado. Um
+  `.exe` gerado no Windows não roda no Linux, e vice-versa.
+* **A chave de API não vai junto:** ela fica salva no computador de quem a
+  configurou, nunca dentro do executável. Cada pessoa informa a própria chave no
+  cadeado, e o executável pode ser compartilhado sem expor a sua.
+* **O Windows pode mostrar um aviso:** o executável não tem assinatura digital,
+  então o SmartScreen pode exibir "O Windows protegeu o computador". Para abrir
+  mesmo assim, clique em **Mais informações** e depois em **Executar assim
+  mesmo**. Alguns antivírus também desconfiam de executáveis do PyInstaller.
+* **O arquivo é grande e demora um pouco para abrir:** são cerca de 55 MB, porque
+  ele carrega o próprio Python e o PySide6. A cada abertura ele se descompacta
+  numa pasta temporária, o que leva alguns segundos.
+
+`requirements-dev.txt` e `build.spec` só são usados para **gerar** o executável.
+Quem recebe o arquivo pronto não precisa deles.
 
 ## Formatos suportados
 
@@ -286,6 +346,9 @@ nenhuma outra parte do código precisa mudar.
   Ubuntu/Debian recentes): é o sistema bloqueando instalação de pacotes fora
   de um venv — não use `--break-system-packages`, apenas crie e ative o
   ambiente virtual como descrito acima antes de instalar.
+* **"A execução de scripts foi desabilitada neste sistema"** ao ativar o venv no
+  PowerShell: rode o app sem ativar, com `.\venv\Scripts\python.exe main.py`, ou
+  ative o venv pelo `cmd`.
 * **`command not found: python`** no Linux/macOS: use `python3` no lugar de
   `python` (o comando `python` sozinho geralmente não existe nessas
   plataformas).

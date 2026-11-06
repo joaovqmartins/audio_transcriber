@@ -25,7 +25,7 @@ def _pen(color: str, width: float = 1.8) -> QPen:
 
 
 def lock_icon(color: str, size: int = 20) -> QIcon:
-    """Ícone de cadeado (botão de configurações, que só guarda a chave de API)."""
+    """Ícone de cadeado (botão de configurações)."""
     pixmap, painter = _new_pixmap(size)
     s = size / 24
 

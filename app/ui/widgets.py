@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPropertyAnimation, QRectF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QBitmap, QColor, QPainter, QPalette, QPen, QRegion
-from PySide6.QtWidgets import QComboBox, QGraphicsDropShadowEffect, QPushButton, QWidget
+from PySide6.QtGui import QBitmap, QColor, QPainter, QPalette, QPen, QPixmap, QRegion
+from PySide6.QtWidgets import (
+    QAbstractButton,
+    QComboBox,
+    QGraphicsDropShadowEffect,
+    QPushButton,
+    QWidget,
+)
 
 
 def _rounded_mask(size: QSize, radius: float) -> QRegion:
@@ -56,6 +63,9 @@ class RoundedComboBox(QComboBox):
         super().__init__(*args, **kwargs)
         self._popup_watched: Optional[QWidget] = None
         self._popup_bg_color = QColor(popup_bg_color)
+
+    def set_popup_bg_color(self, color: str) -> None:
+        self._popup_bg_color = QColor(color)
 
     def showPopup(self) -> None:  # noqa: N802 (nome exigido pelo Qt)
         super().showPopup()
@@ -129,13 +139,20 @@ class RoundedButton(QPushButton):
         self._radius = radius
         self._hovering = False
         self._pressing = False
+        self._text_color = text_color
+        self._disabled_text_color = disabled_text_color
+        self._padding = padding
+        self._font_size = font_size
         self.toggled.connect(lambda _checked: self.update())
 
         self.setCursor(Qt.PointingHandCursor)
+        self._apply_text_style()
+
+    def _apply_text_style(self) -> None:
         self.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: none; color: {text_color}; "
-            f"font-weight: 600; font-size: {font_size}px; padding: {padding}; }}"
-            f"QPushButton:disabled {{ color: {disabled_text_color}; }}"
+            f"QPushButton {{ background: transparent; border: none; color: {self._text_color}; "
+            f"font-weight: 600; font-size: {self._font_size}px; padding: {self._padding}; }}"
+            f"QPushButton:disabled {{ color: {self._disabled_text_color}; }}"
         )
 
     def set_color_scheme(
@@ -143,11 +160,23 @@ class RoundedButton(QPushButton):
         bg_color: str,
         hover_color: Optional[str] = None,
         pressed_color: Optional[str] = None,
+        text_color: Optional[str] = None,
+        disabled_color: Optional[str] = None,
+        disabled_text_color: Optional[str] = None,
     ) -> None:
-        """Troca as cores em tempo real (ex.: alternar para o esquema de "perigo")."""
+        """Troca as cores em tempo real (tema ativo ou esquema de "perigo")."""
         self._bg = QColor(bg_color)
         self._hover = QColor(hover_color) if hover_color else self._bg.lighter(122)
         self._pressed = QColor(pressed_color) if pressed_color else self._bg.darker(125)
+        if disabled_color:
+            self._disabled = QColor(disabled_color)
+
+        new_text = text_color or self._text_color
+        new_disabled_text = disabled_text_color or self._disabled_text_color
+        if (new_text, new_disabled_text) != (self._text_color, self._disabled_text_color):
+            self._text_color = new_text
+            self._disabled_text_color = new_disabled_text
+            self._apply_text_style()
         self.update()
 
     def _current_color(self) -> QColor:
@@ -299,6 +328,62 @@ class AnimatedButton(RoundedButton):
         super().mouseReleaseEvent(event)
 
 
+class ThemeIconButton(QAbstractButton):
+    """Miniatura de um ícone do app, usada para escolher o tema nas Configurações."""
+
+    SIZE = 64
+
+    def __init__(self, icon_path: Path, label: str, parent=None):
+        super().__init__(parent)
+        self._pixmap = QPixmap(str(icon_path)).scaled(
+            self.SIZE - 8,
+            self.SIZE - 8,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._checked_ring = QColor("#000000")
+        self._hover_ring = QColor("#000000")
+        self._hovering = False
+        self.setCheckable(True)
+        self.setFixedSize(self.SIZE, self.SIZE)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(label)
+        self.setAccessibleName(label)
+
+    def set_ring_colors(self, checked_color: str, hover_color: str) -> None:
+        self._checked_ring = QColor(checked_color)
+        self._hover_ring = QColor(hover_color)
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 (nome exigido pelo Qt)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.drawPixmap(4, 4, self._pixmap)
+
+        ring = None
+        if self.isChecked():
+            ring = self._checked_ring
+        elif self._hovering or self.hasFocus():
+            ring = self._hover_ring
+        if ring is not None:
+            pen = QPen(ring)
+            pen.setWidthF(2.5)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5), 14, 14)
+        painter.end()
+
+    def enterEvent(self, event):
+        self._hovering = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovering = False
+        self.update()
+        super().leaveEvent(event)
+
+
 class SpinnerWidget(QWidget):
     """Indicador de carregamento circular e animado (usado enquanto transcreve)."""
 
@@ -311,6 +396,10 @@ class SpinnerWidget(QWidget):
         self._timer = QTimer(self)
         self._timer.setInterval(16)
         self._timer.timeout.connect(self._rotate)
+
+    def set_color(self, color: str) -> None:
+        self._color = QColor(color)
+        self.update()
 
     def start(self) -> None:
         self.show()

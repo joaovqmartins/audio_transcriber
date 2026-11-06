@@ -1,4 +1,4 @@
-"""Folha de estilo (QSS) compartilhada entre a janela principal e diálogos.
+"""Folha de estilo (QSS) e paleta geradas a partir do tema ativo.
 
 Fica num módulo à parte (em vez de dentro de main_window.py) para poder ser
 aplicada também no SettingsDialog: em alguns ambientes Linux, um QDialog não
@@ -8,19 +8,79 @@ tema claro padrão do sistema — destoando do resto do app.
 
 from __future__ import annotations
 
-from app.config import COLOR_INDIGO, COLOR_INK, COLOR_MIST, COLOR_PANEL, COLOR_STEEL
+from PySide6.QtGui import QColor, QPalette
 
-STYLE_SHEET = f"""
+from app.themes import Theme
+
+
+def _rgba(hex_color: str, alpha: float) -> str:
+    color = QColor(hex_color)
+    return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
+
+
+def build_palette(theme: Theme) -> QPalette:
+    """Cobre o que o QSS não alcança, como barras de rolagem e links em QLabel."""
+    palette = QPalette()
+    role = QPalette.ColorRole
+    for color_role, color in (
+        (role.Window, theme.bg_start),
+        (role.WindowText, theme.text),
+        (role.Base, theme.input_bg),
+        (role.AlternateBase, theme.panel),
+        (role.Text, theme.text),
+        (role.PlaceholderText, theme.text_muted),
+        (role.Button, theme.panel),
+        (role.ButtonText, theme.text),
+        (role.ToolTipBase, theme.panel),
+        (role.ToolTipText, theme.text),
+        (role.Highlight, theme.accent),
+        (role.HighlightedText, theme.on_accent),
+        (role.Link, theme.accent_line),
+        (role.LinkVisited, theme.accent_line),
+    ):
+        palette.setColor(color_role, QColor(color))
+    return palette
+
+
+def style_panel_button(button, theme: Theme) -> None:
+    button.set_color_scheme(
+        theme.panel,
+        theme.panel_hover,
+        theme.accent,
+        text_color=theme.text,
+        disabled_color=theme.disabled_bg,
+        disabled_text_color=theme.disabled_text,
+    )
+
+
+def style_accent_button(button, theme: Theme) -> None:
+    button.set_color_scheme(
+        theme.accent,
+        theme.accent_hover,
+        theme.accent_pressed,
+        text_color=theme.on_accent,
+        disabled_color=theme.disabled_bg,
+        disabled_text_color=theme.disabled_text,
+    )
+
+
+def build_style_sheet(theme: Theme) -> str:
+    return f"""
 QMainWindow, QDialog {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 {COLOR_INK}, stop:1 #10141b);
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {theme.bg_start}, stop:1 {theme.bg_end});
 }}
 QWidget#central {{
     background: transparent;
 }}
 QWidget {{
-    color: {COLOR_MIST};
+    color: {theme.text};
     font-family: 'Segoe UI', sans-serif;
+}}
+QToolTip {{
+    background-color: {theme.panel};
+    color: {theme.text};
+    border: 1px solid {theme.border};
 }}
 QLabel#appTitle {{
     font-size: 22px;
@@ -29,27 +89,7 @@ QLabel#appTitle {{
 }}
 QLabel#appSubtitle {{
     font-size: 12px;
-    color: {COLOR_STEEL};
-}}
-QFrame#dropArea {{
-    border: 1px dashed rgba(139, 148, 158, 0.55);
-    border-radius: 20px;
-    background-color: rgba(139, 148, 158, 0.05);
-}}
-QFrame#dropArea:hover {{
-    background-color: rgba(139, 148, 158, 0.12);
-}}
-QFrame#dropArea[dragging="true"] {{
-    border-color: {COLOR_INDIGO};
-    background-color: rgba(99, 102, 241, 0.12);
-}}
-QFrame#dropArea[hasFile="true"] {{
-    border-style: solid;
-    border-color: {COLOR_INDIGO};
-    background-color: rgba(99, 102, 241, 0.06);
-}}
-QFrame#dropArea:disabled {{
-    border-color: #2a2f38;
+    color: {theme.text_muted};
 }}
 QLabel#dropIcon {{
     border: none;
@@ -63,7 +103,7 @@ QLabel#dropTitle {{
 }}
 QLabel#dropSubtitle {{
     font-size: 11px;
-    color: {COLOR_STEEL};
+    color: {theme.text_muted};
     border: none;
     background: transparent;
 }}
@@ -74,98 +114,84 @@ QLabel#statusLabel {{
 QLabel#sectionTitle {{
     font-size: 12px;
     font-weight: 600;
-    color: {COLOR_STEEL};
+    color: {theme.text_muted};
 }}
 QPushButton {{
-    background-color: {COLOR_PANEL};
-    color: {COLOR_MIST};
-    border: 1px solid rgba(139, 148, 158, 0.35);
+    background-color: {theme.panel};
+    color: {theme.text};
+    border: 1px solid {theme.border};
     border-radius: 14px;
     padding: 8px 16px;
     font-weight: 600;
 }}
 QPushButton:hover:!disabled {{
-    background-color: #1c2129;
-    border-color: {COLOR_INDIGO};
+    background-color: {theme.panel_hover};
+    border-color: {theme.accent_line};
 }}
 QPushButton:pressed:!disabled {{
-    background-color: {COLOR_INDIGO};
-    border-color: {COLOR_INDIGO};
-    color: white;
+    background-color: {theme.accent};
+    border-color: {theme.accent};
+    color: {theme.on_accent};
 }}
 QPushButton:disabled {{
-    background-color: #12161d;
-    color: #4a4f58;
-    border-color: #22262e;
-}}
-QPushButton#primaryButton {{
-    background-color: {COLOR_INDIGO};
-    color: white;
-    border: none;
-    font-size: 14px;
-    padding: 11px 30px;
-    border-radius: 24px;
-}}
-QPushButton#primaryButton:hover:!disabled {{
-    background-color: #7a7df3;
-}}
-QPushButton#primaryButton:pressed:!disabled {{
-    background-color: #4f52c1;
+    background-color: {theme.disabled_bg};
+    color: {theme.disabled_text};
+    border-color: {theme.border};
 }}
 QPushButton#iconButton {{
     background-color: transparent;
     border: none;
-    color: {COLOR_MIST};
+    color: {theme.text};
     border-radius: 18px;
     padding: 0px;
 }}
 QPushButton#iconButton:hover:!disabled {{
-    background-color: rgba(230, 237, 243, 0.10);
+    background-color: {_rgba(theme.text, 0.10)};
 }}
 QPushButton#iconButton:pressed:!disabled {{
-    background-color: rgba(230, 237, 243, 0.18);
+    background-color: {_rgba(theme.text, 0.18)};
 }}
 QTextEdit, QLineEdit {{
-    background-color: {COLOR_INK};
-    border: 1px solid rgba(139, 148, 158, 0.5);
+    background-color: {theme.input_bg};
+    border: 1px solid {theme.border};
     border-radius: 16px;
     padding: 10px 14px;
     font-size: 13px;
 }}
 QLineEdit:focus, QTextEdit:focus {{
-    border-color: {COLOR_INDIGO};
+    border-color: {theme.accent_line};
 }}
 QComboBox {{
-    background-color: {COLOR_INK};
-    border: 1px solid rgba(139, 148, 158, 0.5);
+    background-color: {theme.input_bg};
+    border: 1px solid {theme.border};
     border-radius: 14px;
     padding: 5px 10px;
 }}
 QComboBox:hover {{
-    border-color: {COLOR_INDIGO};
+    border-color: {theme.accent_line};
 }}
 QComboBox::drop-down {{
     border: none;
 }}
 QComboBox QAbstractItemView {{
-    background-color: {COLOR_PANEL};
-    color: {COLOR_MIST};
-    border: 1px solid rgba(139, 148, 158, 0.5);
+    background-color: {theme.panel};
+    color: {theme.text};
+    border: 1px solid {theme.border};
     border-radius: 10px;
     outline: none;
-    selection-background-color: {COLOR_INDIGO};
-    selection-color: white;
+    selection-background-color: {theme.accent};
+    selection-color: {theme.on_accent};
 }}
 QComboBox QAbstractItemView::item {{
     padding: 6px 10px 6px 8px;
     border-left: 3px solid transparent;
 }}
 QComboBox QAbstractItemView::item:selected {{
-    background-color: rgba(99, 102, 241, 0.18);
-    color: {COLOR_MIST};
-    border-left: 3px solid {COLOR_INDIGO};
+    background-color: {_rgba(theme.accent_line, 0.18)};
+    color: {theme.text};
+    border-left: 3px solid {theme.accent_line};
 }}
 QComboBox QAbstractItemView::item:hover {{
-    background-color: rgba(139, 148, 158, 0.12);
+    background-color: {_rgba(theme.text_muted, 0.16)};
 }}
 """

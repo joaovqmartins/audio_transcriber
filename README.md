@@ -293,10 +293,10 @@ As pastas `build/` e `dist/` são ignoradas pelo Git.
 O executável é uma cópia do código do momento em que foi gerado, então ele não
 se atualiza sozinho. Depois de mudar o código:
 
-1. **Feche o app**, se estiver aberto. No Windows, um `.exe` em uso não pode ser
-   substituído.
-2. **Rode de novo o comando do passo 3** de [Como gerar](#como-gerar). O arquivo
+1. **Rode de novo o comando do passo 3** de [Como gerar](#como-gerar). O arquivo
    em `dist/` é substituído pela versão nova.
+2. **Abra o app de novo:** se ele estava aberto durante o build, essa janela
+   continua na versão antiga até ser fechada.
 
 Alguns cuidados ao gerar uma nova versão:
 

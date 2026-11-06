@@ -48,6 +48,7 @@ transcrever_audio/
 │   │   ├── widgets.py             # botões, combobox e spinner personalizados
 │   │   ├── icons.py               # ícones vetoriais da interface
 │   │   ├── title_bar.py           # cores da barra de título no Windows
+│   │   ├── notifier.py            # notificações do sistema
 │   │   └── style.py               # folha de estilo (QSS) gerada a partir do tema
 │   ├── transcription/
 │   │   └── groq_engine.py         # motor de transcrição (API da Groq)

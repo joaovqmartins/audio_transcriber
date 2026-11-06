@@ -40,21 +40,23 @@ transcrever_audio/
 ├── README.md
 │
 ├── app/
-│   ├── config.py                  # cores, modelos, idiomas
+│   ├── config.py                  # caminhos, modelos, idiomas
+│   ├── themes.py                  # temas do app (ícone e paleta de cada um)
 │   ├── ui/
 │   │   ├── main_window.py         # interface gráfica (PySide6)
-│   │   ├── settings_dialog.py     # diálogo para configurar a chave de API
+│   │   ├── settings_dialog.py     # diálogo da chave de API e do tema
 │   │   ├── widgets.py             # botões, combobox e spinner personalizados
 │   │   ├── icons.py               # ícones vetoriais da interface
-│   │   └── style.py               # folha de estilo (QSS)
+│   │   ├── title_bar.py           # cores da barra de título no Windows
+│   │   └── style.py               # folha de estilo (QSS) gerada a partir do tema
 │   ├── transcription/
 │   │   └── groq_engine.py         # motor de transcrição (API da Groq)
 │   └── utils/
 │       ├── audio.py               # validação de arquivos, tamanho
-│       └── settings.py            # persistência local da chave de API
+│       └── settings.py            # persistência local da chave de API e do tema
 │
 └── assets/
-    └── icons/                     # ícones do app (inclui o .ico do executável)
+    └── icons/                     # um ícone por tema (inclui o .ico do executável)
 ```
 
 ## Requisitos

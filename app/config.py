@@ -1,4 +1,4 @@
-"""Configurações e constantes do aplicativo (cores, modelos, idiomas)."""
+"""Configurações e constantes do aplicativo (caminhos, modelos, idiomas)."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,8 +10,8 @@ APP_SUBTITLE = "Transcrição de áudio na nuvem (Groq)"
 SUPPORTED_EXTENSIONS = (".mp3", ".ogg", ".wav", ".m4a")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-APP_ICON_PATH = BASE_DIR / "assets" / "icons" / "app_icon.png"
-AUDIO_LOADED_ICON_PATH = BASE_DIR / "assets" / "icons" / "audio_loaded_icon.png"
+ICONS_DIR = BASE_DIR / "assets" / "icons"
+AUDIO_LOADED_ICON_PATH = ICONS_DIR / "audio-loaded-icon.png"
 
 # Limite de tamanho de arquivo da API de transcrição da Groq.
 MAX_FILE_SIZE_MB = 25
@@ -21,14 +21,6 @@ SETTINGS_DIR = Path.home() / ".audio_transcriber"
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 
 GROQ_API_KEYS_URL = "https://console.groq.com/keys"
-
-# Paleta de cores do aplicativo
-COLOR_INK = "#0d1117"  # fundo principal
-COLOR_PANEL = "#161b22"  # fundo de painéis/combos/popups
-COLOR_MIST = "#e6edf3"  # texto principal / alto contraste
-COLOR_STEEL = "#8b949e"  # elementos secundários / subtítulos / bordas
-COLOR_INDIGO = "#6366f1"  # botão principal / destaque
-COLOR_DANGER = "#ef4444"  # botão de cancelar (hover durante transcrição)
 
 
 @dataclass(frozen=True)

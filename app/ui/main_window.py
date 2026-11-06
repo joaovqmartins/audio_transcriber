@@ -9,13 +9,24 @@ import httpx
 from PySide6.QtCore import (
     QEasingCurve,
     QPropertyAnimation,
+    QRectF,
     QSize,
     Qt,
     QThread,
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QDragEnterEvent, QDropEvent, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import (
+    QColor,
+    QDragEnterEvent,
+    QDropEvent,
+    QIcon,
+    QKeySequence,
+    QPainter,
+    QPen,
+    QPixmap,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -35,20 +46,22 @@ from app.config import (
     APP_NAME,
     APP_SUBTITLE,
     AUDIO_LOADED_ICON_PATH,
-    COLOR_DANGER,
-    COLOR_INDIGO,
-    COLOR_MIST,
-    COLOR_PANEL,
-    COLOR_STEEL,
     DEFAULT_MODEL_INDEX,
     LANGUAGE_OPTIONS,
     MODEL_OPTIONS,
     SUPPORTED_EXTENSIONS,
 )
+from app.themes import Theme, get_theme
 from app.transcription.groq_engine import transcribe_audio
 from app.ui.icons import chevron_icon, copy_icon, lock_icon, save_icon, upload_pixmap
 from app.ui.settings_dialog import SettingsDialog
-from app.ui.style import STYLE_SHEET
+from app.ui.style import (
+    build_palette,
+    build_style_sheet,
+    style_accent_button,
+    style_panel_button,
+)
+from app.ui.title_bar import apply_title_bar
 from app.ui.widgets import AnimatedButton, RoundedButton, RoundedComboBox, SpinnerWidget
 from app.utils.audio import human_readable_size, is_supported_audio
 
@@ -56,13 +69,7 @@ from app.utils.audio import human_readable_size, is_supported_audio
 # lista de formatos em vários lugares da UI.
 _FORMATS_LABEL = ", ".join(SUPPORTED_EXTENSIONS)
 _FORMATS_DIALOG_FILTER = "Áudio (" + " ".join(f"*{ext}" for ext in SUPPORTED_EXTENSIONS) + ")"
-from app.utils.settings import load_api_key
-
-
-def _repolish(widget: QWidget) -> None:
-    """Força o Qt a reaplicar o QSS depois de mudar uma dynamic property."""
-    widget.style().unpolish(widget)
-    widget.style().polish(widget)
+from app.utils.settings import load_api_key, load_theme_key
 
 
 class TranscriptionWorker(QThread):
@@ -112,12 +119,23 @@ class TranscriptionWorker(QThread):
 
 
 class DropArea(QFrame):
-    """Área de arrastar-e-soltar; um clique também abre o seletor de arquivos."""
+    """Área de arrastar-e-soltar; um clique também abre o seletor de arquivos.
+
+    A borda e o fundo são desenhados em `paintEvent`, não no QSS: o Qt desenha
+    bordas tracejadas de QSS sem anti-aliasing, deixando os cantos serrilhados.
+    """
 
     file_dropped = Signal(str)
 
-    def __init__(self, parent=None):
+    RADIUS = 20
+    BORDER_WIDTH = 1.2
+
+    def __init__(self, theme: Theme, parent=None):
         super().__init__(parent)
+        self._theme = theme
+        self._has_file = False
+        self._dragging = False
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover)
         self.setAcceptDrops(True)
         self.setObjectName("dropArea")
         self.setMinimumHeight(150)
@@ -130,7 +148,7 @@ class DropArea(QFrame):
         self.icon_label = QLabel()
         self.icon_label.setObjectName("dropIcon")
         self.icon_label.setAlignment(Qt.AlignCenter)
-        self.icon_label.setPixmap(upload_pixmap(COLOR_STEEL, size=44))
+        self.icon_label.setPixmap(upload_pixmap(theme.text_muted, size=44))
 
         self.title_label = QLabel("Arraste seu áudio aqui")
         self.title_label.setObjectName("dropTitle")
@@ -150,30 +168,70 @@ class DropArea(QFrame):
         self._icon_fade_anim.setDuration(220)
         self._icon_fade_anim.setEasingCurve(QEasingCurve.OutCubic)
 
+    def set_theme(self, theme: Theme) -> None:
+        self._theme = theme
+        if not self._has_file:
+            self.icon_label.setPixmap(upload_pixmap(theme.text_muted, size=44))
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 (nome exigido pelo Qt)
+        theme = self._theme
+        highlighted = self._dragging or self._has_file
+
+        fill = QColor(theme.accent_line if highlighted else theme.text_muted)
+        if self._dragging:
+            fill.setAlphaF(0.12)
+        elif self._has_file:
+            fill.setAlphaF(0.06)
+        else:
+            fill.setAlphaF(0.16 if self.isEnabled() and self.underMouse() else 0.08)
+
+        if not self.isEnabled():
+            line = QColor(theme.border)
+        elif highlighted:
+            line = QColor(theme.accent_line)
+        else:
+            line = QColor(theme.text_muted)
+            line.setAlphaF(0.55)
+
+        pen = QPen(line, self.BORDER_WIDTH)
+        if not self._has_file:
+            pen.setDashPattern([5, 4])
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(pen)
+        painter.setBrush(fill)
+        inset = self.BORDER_WIDTH / 2 + 0.5
+        rect = QRectF(self.rect()).adjusted(inset, inset, -inset, -inset)
+        painter.drawRoundedRect(rect, self.RADIUS, self.RADIUS)
+        painter.end()
+
     def show_file(self, path: str) -> None:
         """Troca o ícone/textos para refletir o arquivo de áudio carregado."""
+        self._has_file = True
         pixmap = QPixmap(str(AUDIO_LOADED_ICON_PATH))
         if not pixmap.isNull():
             self.icon_label.setPixmap(
                 pixmap.scaledToHeight(56, Qt.TransformationMode.SmoothTransformation)
             )
         else:
-            self.icon_label.setPixmap(upload_pixmap(COLOR_STEEL, size=44))
+            self.icon_label.setPixmap(upload_pixmap(self._theme.text_muted, size=44))
 
         name = os.path.basename(path)
         elided = name if len(name) <= 42 else name[:39] + "..."
         self.title_label.setText(elided)
         self.subtitle_label.setText(f"{human_readable_size(path)} · clique para trocar")
-        self.setProperty("hasFile", True)
-        _repolish(self)
+        self.update()
         self._play_icon_pop()
 
     def reset(self) -> None:
-        self.icon_label.setPixmap(upload_pixmap(COLOR_STEEL, size=44))
+        self._has_file = False
+        self.icon_label.setPixmap(upload_pixmap(self._theme.text_muted, size=44))
         self.title_label.setText("Arraste seu áudio aqui")
         self.subtitle_label.setText(f"ou clique para selecionar ({_FORMATS_LABEL})")
-        self.setProperty("hasFile", False)
-        _repolish(self)
+        self.update()
 
     def _play_icon_pop(self) -> None:
         """Pequeno "pop" de opacidade no ícone ao trocar de arquivo."""
@@ -215,15 +273,8 @@ class DropArea(QFrame):
                 self.file_dropped.emit(path)
 
     def _set_dragging(self, dragging: bool) -> None:
-        self.setProperty("dragging", dragging)
-        _repolish(self)
-
-
-_STATUS_COLORS = {
-    "info": COLOR_MIST,
-    "success": COLOR_STEEL,
-    "error": "#f87171",
-}
+        self._dragging = dragging
+        self.update()
 
 
 class MainWindow(QMainWindow):
@@ -231,16 +282,18 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(560, 720)
-        self.setStyleSheet(STYLE_SHEET)
 
+        self.theme = get_theme(load_theme_key())
         self.current_file: Optional[str] = None
         self.worker: Optional[TranscriptionWorker] = None
         self._busy = False
         self._status_base = ""
+        self._status_kind = "info"
         self._status_dot_count = 0
         self._expanded = False
 
         self._build_ui()
+        self.apply_theme(self.theme)
 
     # -- construção da interface -------------------------------------------
 
@@ -255,10 +308,9 @@ class MainWindow(QMainWindow):
         settings_row = QHBoxLayout()
         settings_row.addStretch()
         self.settings_button = QPushButton()
-        self.settings_button.setIcon(lock_icon(COLOR_MIST))
         self.settings_button.setIconSize(QSize(20, 20))
         self.settings_button.setObjectName("iconButton")
-        self.settings_button.setToolTip("Configurações (chave de API)")
+        self.settings_button.setToolTip("Configurações (chave de API e tema)")
         self.settings_button.setFixedSize(36, 36)
         self.settings_button.setCursor(Qt.PointingHandCursor)
         self.settings_button.clicked.connect(self._open_settings)
@@ -274,7 +326,7 @@ class MainWindow(QMainWindow):
         root.addWidget(title)
         root.addWidget(subtitle)
 
-        self.drop_area = DropArea()
+        self.drop_area = DropArea(self.theme)
         self.drop_area.setToolTip("Selecionar arquivo (Ctrl+O)")
         self.drop_area.file_dropped.connect(self._on_file_selected)
         root.addWidget(self.drop_area)
@@ -294,7 +346,7 @@ class MainWindow(QMainWindow):
         model_col.setSpacing(6)
         model_label = QLabel("Modelo")
         model_label.setObjectName("sectionTitle")
-        self.model_combo = RoundedComboBox(popup_bg_color=COLOR_PANEL)
+        self.model_combo = RoundedComboBox(popup_bg_color=self.theme.panel)
         for option in MODEL_OPTIONS:
             self.model_combo.addItem(option.label)
         self.model_combo.setCurrentIndex(DEFAULT_MODEL_INDEX)
@@ -306,7 +358,7 @@ class MainWindow(QMainWindow):
         lang_col.setSpacing(6)
         lang_label = QLabel("Idioma")
         lang_label.setObjectName("sectionTitle")
-        self.language_combo = RoundedComboBox(popup_bg_color=COLOR_PANEL)
+        self.language_combo = RoundedComboBox(popup_bg_color=self.theme.panel)
         for label, _code in LANGUAGE_OPTIONS:
             self.language_combo.addItem(label)
         lang_col.addWidget(lang_label)
@@ -322,10 +374,8 @@ class MainWindow(QMainWindow):
         # -- ação principal (transcrever / status / progresso) ------------
         self.transcribe_button = AnimatedButton(
             "Transcrever",
-            glow_color=COLOR_INDIGO,
-            bg_color=COLOR_INDIGO,
-            hover_color="#7a7df3",
-            pressed_color="#4f52c1",
+            glow_color=self.theme.accent,
+            bg_color=self.theme.accent,
             padding="11px 30px",
             font_size=14,
         )
@@ -340,7 +390,7 @@ class MainWindow(QMainWindow):
         status_row.setAlignment(Qt.AlignCenter)
         status_row.setSpacing(8)
 
-        self.spinner = SpinnerWidget(COLOR_STEEL)
+        self.spinner = SpinnerWidget(self.theme.text_muted)
         self.spinner.hide()
         status_row.addWidget(self.spinner)
 
@@ -374,7 +424,6 @@ class MainWindow(QMainWindow):
         result_title_row.addStretch()
 
         self.expand_button = QPushButton()
-        self.expand_button.setIcon(chevron_icon(COLOR_MIST, "down"))
         self.expand_button.setIconSize(QSize(16, 16))
         self.expand_button.setObjectName("iconButton")
         self.expand_button.setToolTip("Expandir a área de transcrição")
@@ -395,17 +444,11 @@ class MainWindow(QMainWindow):
 
         actions_row = QHBoxLayout()
         actions_row.addStretch()
-        self.copy_button = RoundedButton(
-            " Copiar", bg_color=COLOR_PANEL, hover_color="#1c2129", pressed_color=COLOR_INDIGO, radius=14
-        )
-        self.copy_button.setIcon(copy_icon(COLOR_MIST))
+        self.copy_button = RoundedButton(" Copiar", bg_color=self.theme.panel, radius=14)
         self.copy_button.setIconSize(QSize(15, 15))
         self.copy_button.setEnabled(False)
         self.copy_button.clicked.connect(self._copy_text)
-        self.save_button = RoundedButton(
-            " Salvar", bg_color=COLOR_PANEL, hover_color="#1c2129", pressed_color=COLOR_INDIGO, radius=14
-        )
-        self.save_button.setIcon(save_icon(COLOR_MIST))
+        self.save_button = RoundedButton(" Salvar", bg_color=self.theme.panel, radius=14)
         self.save_button.setIconSize(QSize(15, 15))
         self.save_button.setEnabled(False)
         self.save_button.setToolTip("Salvar (Ctrl+S)")
@@ -430,6 +473,37 @@ class MainWindow(QMainWindow):
 
         save_shortcut = QShortcut(QKeySequence("Ctrl+S"), self)
         save_shortcut.activated.connect(self._save_text)
+
+    # -- tema ---------------------------------------------------------------
+
+    def apply_theme(self, theme: Theme) -> None:
+        """Aplica o tema em tudo que não é coberto só pelo QSS."""
+        self.theme = theme
+        app = QApplication.instance()
+        app.setPalette(build_palette(theme))
+        icon = QIcon(str(theme.icon_path))
+        app.setWindowIcon(icon)
+        self.setWindowIcon(icon)
+        self.setStyleSheet(build_style_sheet(theme))
+
+        self.settings_button.setIcon(lock_icon(theme.text))
+        self.copy_button.setIcon(copy_icon(theme.text))
+        self.save_button.setIcon(save_icon(theme.text))
+        self._update_expand_icon()
+        self.drop_area.set_theme(theme)
+        self.spinner.set_color(theme.text_muted)
+        self.model_combo.set_popup_bg_color(theme.panel)
+        self.language_combo.set_popup_bg_color(theme.panel)
+        style_panel_button(self.copy_button, theme)
+        style_panel_button(self.save_button, theme)
+        self._apply_transcribe_color_scheme(danger=False)
+        self._apply_status_color()
+
+        if self.isVisible():
+            apply_title_bar(self, theme)
+
+    def _update_expand_icon(self) -> None:
+        self.expand_button.setIcon(chevron_icon(self.theme.text, "up" if self._expanded else "down"))
 
     # -- animações ----------------------------------------------------------
 
@@ -473,11 +547,19 @@ class MainWindow(QMainWindow):
 
     # -- status ---------------------------------------------------------
 
+    def _apply_status_color(self) -> None:
+        color = {
+            "info": self.theme.text,
+            "success": self.theme.text_muted,
+            "error": self.theme.error,
+        }[self._status_kind]
+        self.status_label.setStyleSheet(f"color: {color};")
+
     def _set_status(self, text: str, kind: str = "info") -> None:
         self._status_base = text
+        self._status_kind = kind
         self._status_dot_count = 0
-        color = _STATUS_COLORS.get(kind, COLOR_MIST)
-        self.status_label.setStyleSheet(f"color: {color};")
+        self._apply_status_color()
         self.status_label.setText(text)
 
         self._status_fade_anim.stop()
@@ -489,9 +571,10 @@ class MainWindow(QMainWindow):
     def _clear_status(self) -> None:
         self._status_timer.stop()
         self._status_base = ""
+        self._status_kind = "info"
         self._status_dot_count = 0
         self.status_opacity.setOpacity(1.0)
-        self.status_label.setStyleSheet(f"color: {COLOR_MIST};")
+        self._apply_status_color()
         self.status_label.setText("")
 
     def _tick_status_dots(self) -> None:
@@ -551,16 +634,18 @@ class MainWindow(QMainWindow):
             self._status_timer.stop()
 
     def _apply_transcribe_color_scheme(self, danger: bool) -> None:
+        theme = self.theme
         if danger:
             self.transcribe_button.set_color_scheme(
-                COLOR_DANGER, hover_color="#f87171", pressed_color="#b91c1c"
+                theme.danger,
+                theme.danger_hover,
+                theme.danger_pressed,
+                text_color="#ffffff",
             )
-            self.transcribe_button.set_glow_color(COLOR_DANGER)
+            self.transcribe_button.set_glow_color(theme.danger)
         else:
-            self.transcribe_button.set_color_scheme(
-                COLOR_INDIGO, hover_color="#7a7df3", pressed_color="#4f52c1"
-            )
-            self.transcribe_button.set_glow_color(COLOR_INDIGO)
+            style_accent_button(self.transcribe_button, theme)
+            self.transcribe_button.set_glow_color(theme.accent)
 
     def _on_transcribe_hover_changed(self, hovering: bool) -> None:
         """Durante a transcrição, o hover revela a ação de cancelar (fica vermelho)."""
@@ -577,7 +662,9 @@ class MainWindow(QMainWindow):
             self._start_transcription()
 
     def _open_settings(self) -> None:
-        SettingsDialog(self).exec()
+        dialog = SettingsDialog(self.theme, self)
+        dialog.theme_selected.connect(self.apply_theme)
+        dialog.exec()
 
     def _toggle_expand(self) -> None:
         """Esconde a área de arrastar/opções para dar mais espaço à transcrição."""
@@ -586,12 +673,10 @@ class MainWindow(QMainWindow):
         self.drop_area.setVisible(not self._expanded)
         self.options_container.setVisible(not self._expanded)
 
-        if self._expanded:
-            self.expand_button.setIcon(chevron_icon(COLOR_MIST, "up"))
-            self.expand_button.setToolTip("Recolher a área de transcrição")
-        else:
-            self.expand_button.setIcon(chevron_icon(COLOR_MIST, "down"))
-            self.expand_button.setToolTip("Expandir a área de transcrição")
+        self._update_expand_icon()
+        self.expand_button.setToolTip(
+            "Recolher a área de transcrição" if self._expanded else "Expandir a área de transcrição"
+        )
 
     def _start_transcription(self) -> None:
         if not self.current_file or self._busy:

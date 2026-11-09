@@ -54,6 +54,7 @@ from app.config import (
 from app.themes import Theme, get_theme
 from app.transcription.groq_engine import transcribe_audio
 from app.ui.icons import chevron_icon, copy_icon, lock_icon, save_icon, upload_pixmap
+from app.ui.notifier import SystemNotifier
 from app.ui.settings_dialog import SettingsDialog
 from app.ui.style import (
     build_palette,
@@ -292,6 +293,9 @@ class MainWindow(QMainWindow):
         self._status_dot_count = 0
         self._expanded = False
 
+        self.notifier = SystemNotifier(self)
+        self.notifier.clicked.connect(self._bring_to_front)
+
         self._build_ui()
         self.apply_theme(self.theme)
 
@@ -484,6 +488,7 @@ class MainWindow(QMainWindow):
         icon = QIcon(str(theme.icon_path))
         app.setWindowIcon(icon)
         self.setWindowIcon(icon)
+        self.notifier.set_icon(icon)
         self.setStyleSheet(build_style_sheet(theme))
 
         self.settings_button.setIcon(lock_icon(theme.text))
@@ -733,16 +738,30 @@ class MainWindow(QMainWindow):
         self.worker = None
         return True
 
+    def _notify_if_unfocused(self, title: str, message: str, error: bool = False) -> None:
+        """Quem está olhando para o app já vê o resultado; só avisa quem saiu dele."""
+        if not self.isActiveWindow():
+            self.notifier.notify(title, message, error=error)
+
+    def _bring_to_front(self) -> None:
+        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
     def _on_transcription_finished(self, text: str) -> None:
         if not self._finish_worker():
             return
         self._reveal_text(text)
         self._set_busy(False)
+        file_name = os.path.basename(self.current_file or "")
 
         if text.strip():
             self._set_status("Concluído.", "success")
+            self._notify_if_unfocused("Transcrição concluída", file_name)
         else:
             self._set_status("Nenhuma fala identificada.", "info")
+            self._notify_if_unfocused("Nenhuma fala identificada", file_name)
             QMessageBox.information(
                 self,
                 "Nenhum texto detectado",
@@ -760,6 +779,9 @@ class MainWindow(QMainWindow):
             return
         self._set_status("Ocorreu um erro durante a transcrição.", "error")
         self._set_busy(False)
+        self._notify_if_unfocused(
+            "Erro na transcrição", "Abra o app para ver os detalhes.", error=True
+        )
         QMessageBox.critical(
             self,
             "Erro na transcrição",

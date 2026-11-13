@@ -328,6 +328,8 @@ nem qualquer dependência. Antes de enviar, vale saber que:
   então o SmartScreen pode exibir "O Windows protegeu o computador". Para abrir
   mesmo assim, clique em **Mais informações** e depois em **Executar assim
   mesmo**. Alguns antivírus também desconfiam de executáveis do PyInstaller.
+  Em PCs com o **Controle Inteligente de Aplicativos** ligado, o executável é
+  bloqueado sem essa opção; veja [Solução de problemas](#solução-de-problemas).
 * **O arquivo é grande e demora um pouco para abrir:** são cerca de 55 MB, porque
   ele carrega o próprio Python e o PySide6. A cada abertura ele se descompacta
   numa pasta temporária, o que leva alguns segundos.
@@ -389,6 +391,20 @@ nenhuma outra parte do código precisa mudar.
   existe dentro do `venv`, e o comando foi rodado sem ele. Use
   `.\venv\Scripts\pyinstaller.exe build.spec`, como em
   [Como gerar](#como-gerar).
+* **"O controle inteligente de aplicativos bloqueou um aplicativo que pode não
+  ser seguro"** ao abrir o `.exe`: é uma proteção do Windows 11 que bloqueia
+  executáveis sem assinatura digital reconhecida, e o gerado pelo PyInstaller
+  não tem. Não é um erro do app, e gerar de novo não resolve. Nesse PC, há três
+  saídas:
+  * **Rodar pelo código-fonte:** siga [Como executar](#como-executar). O
+    `python.exe` é assinado, então funciona mesmo com a proteção ligada.
+  * **Desligar a proteção:** em Segurança do Windows → Controle de aplicativos e
+    navegador → Configurações do Controle Inteligente de Aplicativos. Em muitas
+    versões do Windows 11, depois de desligada ela só volta reinstalando ou
+    redefinindo o Windows, então confira o aviso na tela antes.
+  * **Assinar o executável:** exige um certificado de assinatura de código pago,
+    de uma autoridade certificadora ou do serviço de assinatura da Microsoft no
+    Azure. Certificado autoassinado não resolve.
 * **`command not found: python`** no Linux/macOS: use `python3` no lugar de
   `python` (o comando `python` sozinho geralmente não existe nessas
   plataformas).
